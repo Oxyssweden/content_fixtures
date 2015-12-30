@@ -7,28 +7,53 @@ abstract class ContentFixturesEntityMigration extends Migration {
   private $subfieldSeparator = '__';
 
   public function __construct($arguments = array()) {
+    $bundle = static::$cfx_bundle;
+    $entity_type = static::$cfx_entity_type;
+
     parent::__construct($arguments);
-    $this->description = t('Import @entity from CSV file.', array('@entity' => static::$cfx_entity_type . '-' . static::$cfx_bundle));
+    $this->description = t('Import @entity from CSV file.', array('@entity' => $entity_type . '-' . $bundle));
 
     // Create a map object for tracking the relationships between source rows
-    $this->createMap();
+    $this->createMap($entity_type, $bundle);
 
     // Create a MigrateSource object.
-    $path = $this->getSourceFilesPath() . static::$cfx_entity_type . '-' . static::$cfx_bundle . '.csv';
-    $this->source = new MigrateSourceCSV($path, array(), $this->sourceFileOptions(), $this->fields());
+    $path = $this->getSourceFilesPath() . $entity_type . '-' . $bundle . '.csv';
+    $this->source = new MigrateSourceCSV($path, array(), $this->sourceFileOptions(), $this->fields($entity_type, $bundle));
 
-    switch(static::$cfx_entity_type) {
-      case 'taxonomy_term':
-        $this->destination = new MigrateDestinationTerm(static::$cfx_bundle);
-        break;
-      default:
-        $this->destination = new MigrateDestinationEntityAPI(static::$cfx_entity_type, static::$cfx_bundle);
-        break;
-    }
+    // Set destination migration class
+    $this->destination = $this->getDestinationByType($entity_type, $bundle);
 
     // Field Mappings
+    $this->fieldInstanceMap($this->getFieldInstances($entity_type, $bundle));
 
-    foreach($this->getFieldInstances() as $field) {
+    // Author, default to admin
+    $this->addFieldMapping('uid')->defaultValue(1);
+  }
+
+  /**
+   * Get destination migration class
+   *
+   * @param $type
+   */
+  function getDestinationByType($entity_type, $bundle) {
+    switch ($entity_type) {
+      case 'taxonomy_term':
+        return new MigrateDestinationTerm($bundle);
+        break;
+      default:
+        return new MigrateDestinationEntityAPI($entity_type, $bundle);
+        break;
+    }
+  }
+
+  /**
+   * Add field mappings.
+   *
+   * @param $fields
+   */
+  function fieldInstanceMap($fields) {
+    // @todo: entityreference fields
+    foreach ($fields as $field) {
       $name = $field['field_name'];
       switch($field['base_field_info']['type']) {
         case 'file':
@@ -40,12 +65,6 @@ abstract class ContentFixturesEntityMigration extends Migration {
           $this->addFieldMapping($name . ':source_dir')
             ->defaultValue($this->getSourceFilesPath() . '/files');
           break;
-        // @todo: entityreference fields
-        //case 'entityreference':
-          // Link with breweries, based on the ID
-          //$this->addFieldMapping('field_trappist_brewery', 'brewery')
-          //->sourceMigration('MZBrewery');
-         // break;
         case 'taxonomy_term_reference':
           // Taxonomy Term. Allow multiple.
           $this->addFieldMapping($name, $name)
@@ -55,13 +74,13 @@ abstract class ContentFixturesEntityMigration extends Migration {
           break;
         case 'datetime':
         case 'date':
-        $this->addFieldMapping($name, $name . $this->subfieldSeparator .'from' );
+          $this->addFieldMapping($name, $name . $this->subfieldSeparator .'from' );
           $this->addFieldMapping($name . ':to', $name . $this->subfieldSeparator .'to');
           break;
         case 'link_field':
           $this->addFieldMapping($name, $name . $this->subfieldSeparator .'url' );
           $this->addFieldMapping($name . ':title', $name . $this->subfieldSeparator .'title');
-         break;
+          break;
         case 'text_with_summary':
           // Generic field
           $this->addFieldMapping($name, $name);
@@ -76,9 +95,6 @@ abstract class ContentFixturesEntityMigration extends Migration {
           $this->addFieldMapping($name, $name);
       }
     }
-
-    // Author, default to admin
-    $this->addFieldMapping('uid')->defaultValue(1);
   }
 
   /**
@@ -86,9 +102,9 @@ abstract class ContentFixturesEntityMigration extends Migration {
    *
    * @return string
    */
-  function createMap() {
+  function createMap($entity_type, $bundle) {
     $map_class = 'entity';
-    switch(static::$cfx_entity_type) {
+    switch($entity_type) {
       case 'commerce_product':
         $source_key = array(
           'sku' => array(
@@ -103,7 +119,6 @@ abstract class ContentFixturesEntityMigration extends Migration {
             'type' => 'int',
             'not null' => TRUE,
           ));
-        //$map_class = 'node';
         break;
       default:
         $source_key = array(
@@ -111,14 +126,13 @@ abstract class ContentFixturesEntityMigration extends Migration {
             'type' => 'int',
             'not null' => TRUE,
           ));
-        //$source_key = MigrateDestinationEntityAPI::getKeySchema(static::$cfx_entity_type, static::$cfx_bundle);
     }
 
     if ($source_key) {
       switch($map_class) {
         case 'entity':
           $this->map = new MigrateSQLMap($this->machineName, $source_key,
-            MigrateDestinationEntityAPI::getKeySchema(static::$cfx_entity_type, static::$cfx_bundle)
+            MigrateDestinationEntityAPI::getKeySchema($entity_type, $bundle)
           );
           break;
         case 'node':
@@ -133,9 +147,9 @@ abstract class ContentFixturesEntityMigration extends Migration {
     }
   }
 
-  function fields() {
+  function fields($entity_type, $bundle) {
     $fields = array();
-    foreach($this->getFieldInstances() as $field) {
+    foreach($this->getFieldInstances($entity_type, $bundle) as $field) {
       $fields[] = array($field['field_name'] =>
         isset($field['label']) ? $field['label'] : $field['field_name']);
     }
@@ -152,35 +166,15 @@ abstract class ContentFixturesEntityMigration extends Migration {
   }
 
   /**
-   * Returns CSV column definitions.
-   *
-   * @return mixed
-   */
-  function csvcolumns() {
-    $i = 0;
-    $columns = array();
-    foreach($this->getFieldInstances() as $field) {
-      $columns[$i] = array($field['field_name'], $field['field_name']);
-      $i++;
-    }
-    return $columns;
-  }
-
-  /**
    * Add fields that are not picked up automatically
    *
    * @return array
    */
-  function getExtraFields() {
+  function getExtraFields($entity_type, $bundle) {
     $extra = array();
 
-    // Mock field for label
     // @todo: generalize for other entity types.
-    // $types = entity_get_info(static::$cfx_entity_type);
-    // $fields = field_info_extra_fields(static::$cfx_entity_type, static::$cfx_bundle, 'form');
-
-
-    switch(static::$cfx_entity_type) {
+    switch($entity_type) {
       case 'commerce_product':
         $extra[] = array(
           'field_name' => 'sku',
@@ -211,10 +205,10 @@ abstract class ContentFixturesEntityMigration extends Migration {
    *
    * @return array|null
    */
-  function getFieldInstances() {
+  function getFieldInstances($entity_type, $bundle) {
     if($this->cfx_field_instances == NULL) {
-      $this->cfx_field_instances = $this->getExtraFields();
-      $fields = field_info_instances(static::$cfx_entity_type, static::$cfx_bundle);
+      $this->cfx_field_instances = $this->getExtraFields($entity_type, $bundle);
+      $fields = field_info_instances($entity_type, $bundle);
       // Filter out the fields we want.
       foreach($fields as $field) {
         $field['base_field_info'] = field_info_field($field['field_name']);
@@ -246,7 +240,6 @@ abstract class ContentFixturesEntityMigration extends Migration {
         }
       }
     }
-    //$row->product_images = explode(', ', $row->images);
     $row->language = LANGUAGE_NONE;
     return parent::prepareRow($row);
   }
