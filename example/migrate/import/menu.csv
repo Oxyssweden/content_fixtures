@@ -1,0 +1,4 @@
+menu,mlid,ref_parent,path,title,weight
+main-menu,1,,node/1,Parent,0
+main-menu,2,1,node/2,Child,0
+menu-footer,3,,node/3,Footer menu link,0

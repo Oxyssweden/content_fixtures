@@ -1,0 +1,10 @@
+name = Content Fixtures
+description = Simplify creation of dummy content using Migrate module.
+core = 7.x
+package = Migrate
+
+files[] = inc/ContentFixturesEntityMigration.inc
+files[] = inc/ContentFixturesMenuLinkMigration.inc
+
+dependencies[] = migrate
+dependencies[] = migrate_extras

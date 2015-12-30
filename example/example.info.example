@@ -1,0 +1,5 @@
+;Add this to your info file
+files[] = migrate/ContentFixturesNodeNodetype.inc
+files[] = migrate/ContentFixturesMenuExample.inc
+
+dependencies[] = content_fixtures
